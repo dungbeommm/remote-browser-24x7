@@ -24,16 +24,24 @@ jobs:
       WEB_PASSWORD: ${{ secrets.PREVIEW_WEB_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
-      - name: Require private password
+      - name: Validate preview password and Telegram notification settings
         shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           if (( ${#WEB_PASSWORD} < 12 )); then
-            echo 'Set PREVIEW_WEB_PASSWORD in repository Actions secrets (12+ chars).' >&2
+            echo '::error::Set PREVIEW_WEB_PASSWORD in Actions secrets (12+ chars).'
+            exit 1
+          fi
+          if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]]; then
+            echo '::error::Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Actions secrets.'
             exit 1
           fi
       - name: Start browser and quick Cloudflare Tunnel
         run: docker compose --profile quick up -d --build
       - name: Print temporary HTTPS link
+        id: link
         shell: bash
         run: |
           url=''
@@ -47,6 +55,7 @@ jobs:
             exit 1
           fi
           echo "::notice title=Temporary browser preview::$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
           {
             echo '## Browser preview URL'
             echo
@@ -54,6 +63,23 @@ jobs:
             echo
             echo '> This is an ephemeral development preview only; data is NOT saved across runs and the link expires when this workflow stops.'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Send browser link via Telegram
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PREVIEW_URL: ${{ steps.link.outputs.url }}
+          DURATION_MINUTES: ${{ inputs.duration_minutes }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          message="$(printf 'Trình duyệt Chromium đã sẵn sàng!\n\nLink: %s\nTài khoản: preview\nThời hạn: %s phút\n\nĐây là link thử nghiệm tạm thời, không lưu dữ liệu giữa các lần chạy.\nWorkflow: %s' "$PREVIEW_URL" "$DURATION_MINUTES" "$RUN_URL")"
+          curl --fail --silent --show-error --retry 3 --retry-delay 2 --max-time 30 \
+            --request POST \
+            --data-urlencode "chat_id=$TELEGRAM_CHAT_ID" \
+            --data-urlencode "text=$message" \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" > /dev/null
+          echo 'Telegram link notification sent.'
       - name: Keep the test preview available briefly
         env:
           MINUTES: ${{ inputs.duration_minutes }}
