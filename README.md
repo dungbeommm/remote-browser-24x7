@@ -146,6 +146,26 @@ Tài liệu:
 - https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/
 - https://developers.cloudflare.com/tunnel/concepts/
 
+### Thiết lập Telegram nhanh trên Windows (khuyến nghị)
+
+Đã có script PowerShell **`scripts/setup-telegram.ps1`**. Script hỏi token và mật khẩu bằng nhập liệu ẩn, tìm Chat ID từ tin nhắn Telegram, dùng `gh secret set` để lưu ba GitHub Actions Secrets và chạy thử preview 10 phút. Token không được commit lên GitHub.
+
+1. Thu hồi token cũ đã từng chia sẻ qua **@BotFather** (`/revoke`) và tạo token mới. **Đừng dán token vào chat hoặc issue.**
+2. Nhắn `/start` đến bot Telegram bạn muốn nhận link.
+3. Trên Windows PowerShell, cài GitHub CLI nếu chưa có: `winget install --id GitHub.cli -e` rồi mở cửa sổ PowerShell mới.
+4. Chạy:
+
+   ```powershell
+   git clone https://github.com/dungbeommm/remote-browser-24x7.git
+   cd remote-browser-24x7
+   gh auth login --web
+   .\scripts\setup-telegram.ps1
+   ```
+
+5. Nhập token **mới** và mật khẩu trình duyệt khi script hỏi. Nếu bot có nhiều chat hoặc không có update thì script sẽ hỏi Chat ID. Sau khi thiết lập, nó sẽ kích hoạt một phiên preview. Bạn nhận link Telegram khi tunnel khởi tạo thành công. Có thể chạy script bằng `-DoNotRun` nếu chỉ muốn lưu secrets.
+
+Đây là script thiết lập trên máy của bạn: GitHub connector dùng trong ChatGPT có thể sửa mã nguồn nhưng **không thể ghi trực tiếp Actions Secrets**, và chương trình cần tài khoản GitHub đã đăng nhập của bạn để gọi lệnh này. Script sử dụng GitHub CLI để mã hóa Secrets trước khi gửi lên GitHub. Không đưa token trực tiếp lên command line hoặc file cấu hình.
+
 ### Gửi URL trình duyệt preview qua Telegram tự động
 
 Workflow `.github/workflows/preview.yml` sẽ **gửi link HTTPS đến Telegram** ngay khi link Cloudflare Tunnel xuất hiện, trước khi bắt đầu đếm 10/20 phút chạy thử. Tin nhắn chứa đường link, username `preview`, thời gian phiên và URL workflow; **không gửi mật khẩu**.
