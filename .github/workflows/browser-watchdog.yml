@@ -1,0 +1,33 @@
+name: Remote browser watchdog
+
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Restart the chain if no session is active
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          active=0
+          for st in in_progress queued waiting; do
+            n="$(gh run list --workflow browser-24x7.yml --status "$st" --limit 5 --json databaseId --jq 'length' 2>/dev/null || echo 0)"
+            active=$(( active + n ))
+          done
+          echo "Active chained sessions: $active"
+          if (( active == 0 )); then
+            echo 'Chain is down; dispatching a new session.'
+            gh workflow run browser-24x7.yml --ref main
+          else
+            echo 'Chain is alive; nothing to do.'
+          fi

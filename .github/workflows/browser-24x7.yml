@@ -1,0 +1,144 @@
+name: Remote browser 24/7 (chained sessions)
+
+on:
+  workflow_dispatch:
+    inputs:
+      hold_minutes:
+        description: 'Minutes to keep this session alive (GitHub caps one job at 360)'
+        required: false
+        type: choice
+        default: '330'
+        options:
+          - '60'
+          - '330'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  session:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    env:
+      WEB_USER: preview
+      WEB_PASSWORD: ${{ secrets.PREVIEW_WEB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate and sanitize secrets
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          # Secrets stored via the Windows setup may carry stray whitespace/CR.
+          # Sanitize the copies used by later steps (runner memory only).
+          WEB_PASSWORD="$(printf '%s' "$WEB_PASSWORD" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          echo "WEB_PASSWORD=$WEB_PASSWORD" >> "$GITHUB_ENV"
+          if (( ${#WEB_PASSWORD} < 12 )); then
+            echo '::error::Set PREVIEW_WEB_PASSWORD in Actions secrets (12+ chars).'
+            exit 1
+          fi
+          token="$(printf '%s' "$TELEGRAM_BOT_TOKEN" | tr -d '[:space:]')"
+          chat_id="$(printf '%s' "$TELEGRAM_CHAT_ID" | tr -d '[:space:]')"
+          echo "TG_TOKEN=$token" >> "$GITHUB_ENV"
+          echo "TG_CHAT=$chat_id" >> "$GITHUB_ENV"
+
+      - name: Start browser and quick Cloudflare Tunnel
+        run: docker compose --profile quick up -d --build
+
+      - name: Get tunnel URL
+        id: link
+        shell: bash
+        run: |
+          url=''
+          for i in $(seq 1 60); do
+            url="$(docker compose --profile quick logs --no-color tunnel-quick 2>&1 | grep -Eo 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' | tail -1 || true)"
+            if [[ -n "$url" ]]; then break; fi
+            sleep 2
+          done
+          if [[ -z "$url" ]]; then
+            docker compose --profile quick logs --tail=100 tunnel-quick
+            exit 1
+          fi
+          echo "::notice title=Remote browser session::$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "session started $(date -u +%FT%TZ)" > session-ok.txt
+          {
+            echo '## Remote browser session'
+            echo
+            echo "Open **$url** and log in with username **preview** and your PREVIEW_WEB_PASSWORD secret."
+            echo
+            echo '> Chained session: the next run is dispatched ~30 minutes before this one ends, so sessions overlap with no gap. Login data does NOT carry over between sessions.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Send session link via Telegram (non-blocking)
+        shell: bash
+        env:
+          PREVIEW_URL: ${{ steps.link.outputs.url }}
+          HOLD_MINUTES: ${{ inputs.hold_minutes }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [[ ! "$TG_TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ || ! "$TG_CHAT" =~ ^-?[0-9]+$ ]]; then
+            echo '::warning::Telegram token or chat ID is invalid; link is in the run Summary.'
+            exit 0
+          fi
+          message="$(printf 'Phiên trình duyệt MỚI đã sẵn sàng!\n\nLink: %s\nTài khoản: preview\nThời lượng phiên: %s phút (phiên kế tự nối trước khi hết giờ)\n\nWorkflow: %s' "$PREVIEW_URL" "$HOLD_MINUTES" "$RUN_URL")"
+          if curl --fail --silent --show-error --retry 2 --retry-delay 2 --max-time 30 \
+            --request POST \
+            --data-urlencode "chat_id=$TG_CHAT" \
+            --data-urlencode "text=$message" \
+            "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" > /dev/null; then
+            echo 'Telegram link notification sent.'
+          else
+            echo '::warning::Telegram send failed; link is in the run Summary.'
+          fi
+
+      - name: Hold session and chain the next run before time expires
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOLD_MINUTES: ${{ inputs.hold_minutes }}
+          CHAIN_BEFORE_MIN: '30'
+        run: |
+          total=$(( HOLD_MINUTES * 60 ))
+          chain_at=$(( total - CHAIN_BEFORE_MIN * 60 ))
+          elapsed=0
+          chained=0
+          while (( elapsed < total )); do
+            sleep 60
+            elapsed=$(( elapsed + 60 ))
+            if (( chained == 0 && elapsed >= chain_at )); then
+              if gh workflow run browser-24x7.yml --ref main; then
+                echo "Next session dispatched at minute $(( elapsed / 60 ))."
+                echo "chained $(date -u +%FT%TZ)" > chained.txt
+                chained=1
+              else
+                echo '::warning::Chain dispatch failed; will retry.'
+              fi
+            fi
+            if (( elapsed % 600 == 0 )); then
+              echo "Holding: $(( elapsed / 60 ))/$HOLD_MINUTES min, chained=$chained"
+            fi
+          done
+          echo 'Session time complete.'
+
+      - name: Fallback - chain next run if the hold step did not
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f chained.txt ]; then
+            echo 'Next run already chained.'
+          elif [ -f session-ok.txt ]; then
+            echo 'Session ran but did not chain; dispatching next run now.'
+            gh workflow run browser-24x7.yml --ref main
+          else
+            echo 'Session never came up; not chaining. The watchdog will retry within the hour.'
+          fi
+
+      - name: Stop session
+        if: always()
+        run: docker compose --profile quick down || true
