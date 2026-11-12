@@ -46,7 +46,7 @@ jobs:
           echo "TG_CHAT=$chat_id" >> "$GITHUB_ENV"
 
       - name: Start browser and quick Cloudflare Tunnel
-        run: docker compose --profile quick up -d --build
+        run: docker compose -f docker-compose.yml -f docker-compose.rustdesk.yml --profile quick up -d --build
 
       - name: Get tunnel URL
         id: link
@@ -54,12 +54,12 @@ jobs:
         run: |
           url=''
           for i in $(seq 1 60); do
-            url="$(docker compose --profile quick logs --no-color tunnel-quick 2>&1 | grep -Eo 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' | tail -1 || true)"
+            url="$(docker compose -f docker-compose.yml -f docker-compose.rustdesk.yml --profile quick logs --no-color tunnel-quick 2>&1 | grep -Eo 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' | tail -1 || true)"
             if [[ -n "$url" ]]; then break; fi
             sleep 2
           done
           if [[ -z "$url" ]]; then
-            docker compose --profile quick logs --tail=100 tunnel-quick
+            docker compose -f docker-compose.yml -f docker-compose.rustdesk.yml --profile quick logs --tail=100 tunnel-quick
             exit 1
           fi
           echo "::notice title=Remote browser session::$url"
@@ -73,18 +73,37 @@ jobs:
             echo '> Chained session: the next run is dispatched ~30 minutes before this one ends, so sessions overlap with no gap. Login data does NOT carry over between sessions.'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Get RustDesk device ID
+        id: rustdesk
+        shell: bash
+        run: |
+          rid=''
+          for i in $(seq 1 36); do
+            rid="$(docker compose -f docker-compose.yml -f docker-compose.rustdesk.yml logs --no-color browser 2>/dev/null | grep -o 'RUSTDESK_ID=[0-9]*' | tail -1 | cut -d= -f2 || true)"
+            if [[ -n "$rid" ]]; then break; fi
+            sleep 5
+          done
+          if [[ -z "$rid" ]]; then
+            echo '::warning::RustDesk ID not found in logs; noVNC link still works.'
+          fi
+          echo "id=$rid" >> "$GITHUB_OUTPUT"
+
       - name: Send session link via Telegram (non-blocking)
         shell: bash
         env:
           PREVIEW_URL: ${{ steps.link.outputs.url }}
           HOLD_MINUTES: ${{ inputs.hold_minutes }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUSTDESK_ID: ${{ steps.rustdesk.outputs.id }}
         run: |
           if [[ ! "$TG_TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ || ! "$TG_CHAT" =~ ^-?[0-9]+$ ]]; then
             echo '::warning::Telegram token or chat ID is invalid; link is in the run Summary.'
             exit 0
           fi
           message="$(printf 'Phiên trình duyệt MỚI đã sẵn sàng!\n\nLink: %s\nTài khoản: preview\nThời lượng phiên: %s phút (phiên kế tự nối trước khi hết giờ)\n\nWorkflow: %s' "$PREVIEW_URL" "$HOLD_MINUTES" "$RUN_URL")"
+          if [[ -n "$RUSTDESK_ID" ]]; then
+            message="${message}"$'\n\n'"ID RustDesk: ${RUSTDESK_ID} (mở app RustDesk, nhập ID, mật khẩu = mật khẩu web)"
+          fi
           if curl --fail --silent --show-error --retry 2 --retry-delay 2 --max-time 30 \
             --request POST \
             --data-urlencode "chat_id=$TG_CHAT" \
@@ -141,4 +160,4 @@ jobs:
 
       - name: Stop session
         if: always()
-        run: docker compose --profile quick down || true
+        run: docker compose -f docker-compose.yml -f docker-compose.rustdesk.yml --profile quick down || true
