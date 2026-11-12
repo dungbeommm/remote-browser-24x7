@@ -1,0 +1,49 @@
+name: remote-browser
+
+services:
+  browser:
+    build: .
+    image: remote-browser:local
+    restart: unless-stopped
+    init: true
+    environment:
+      WEB_USER: ${WEB_USER:-admin}
+      WEB_PASSWORD: ${WEB_PASSWORD:?WEB_PASSWORD must be set in .env}
+      SCREEN_RESOLUTION: ${SCREEN_RESOLUTION:-1365x768x24}
+      SESSION_ROTATE_HOURS: ${SESSION_ROTATE_HOURS:-0}
+    volumes:
+      - browser-data:/data
+    ports:
+      - "127.0.0.1:${LOCAL_PORT:-8080}:8080"
+    shm_size: 1gb
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    stop_grace_period: 45s
+
+  # No Cloudflare account or domain required. Temporary link changes on restart.
+  tunnel-quick:
+    profiles: ["quick"]
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://browser:8080
+    depends_on:
+      browser:
+        condition: service_healthy
+
+  # Configure a public hostname in Cloudflare Zero Trust:
+  #   Service URL = http://browser:8080
+  # Then set CLOUDFLARE_TUNNEL_TOKEN in your private .env file.
+  tunnel-named:
+    profiles: ["stable"]
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      browser:
+        condition: service_healthy
+
+volumes:
+  browser-data:
