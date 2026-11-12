@@ -30,10 +30,32 @@ function Set-ActionsSecret {
         [string]$Name,
         [string]$Value
     )
-    # GitHub CLI reads the secret from stdin (never place it in the command line).
-    $Value | & gh secret set $Name --repo $Repository --app actions | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to save Actions secret $Name. Check repository permissions."
+    # Write the raw secret bytes to stdin WITHOUT a trailing CR/LF.
+    # Piping a PowerShell string normally appends a newline, which can break
+    # Telegram bot tokens and numeric Chat IDs saved as GitHub Secrets.
+    $start = New-Object System.Diagnostics.ProcessStartInfo
+    $start.FileName = 'gh'
+    $start.Arguments = 'secret set ' + $Name + ' --repo ' + $Repository + ' --app actions'
+    $start.UseShellExecute = $false
+    $start.RedirectStandardInput = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.CreateNoWindow = $true
+    $proc = New-Object System.Diagnostics.Process
+    $proc.StartInfo = $start
+    try {
+        if (-not $proc.Start()) { throw "Unable to start GitHub CLI." }
+        $proc.StandardInput.Write($Value)
+        $proc.StandardInput.Close()
+        $stderr = $proc.StandardError.ReadToEnd()
+        $stdout = $proc.StandardOutput.ReadToEnd()
+        $proc.WaitForExit()
+        if ($proc.ExitCode -ne 0) {
+            throw "GitHub CLI failed to save $Name. Check gh auth status and repo permissions."
+        }
+    }
+    finally {
+        $proc.Dispose()
     }
     Write-Host "Saved $Name." -ForegroundColor Green
 }
@@ -42,8 +64,18 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     throw "GitHub CLI is missing. Install it with: winget install --id GitHub.cli -e"
 }
 
-& gh auth status *> $null
-if ($LASTEXITCODE -ne 0) {
+# gh writes normal diagnostics to stderr; avoid treating non-zero exit as a
+# terminating PowerShell exception before the login fallback can run.
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    & gh auth status *> $null
+    $authenticated = ($LASTEXITCODE -eq 0)
+}
+finally {
+    $ErrorActionPreference = $previousPreference
+}
+if (-not $authenticated) {
     Write-Host 'Log into GitHub in the browser now.'
     & gh auth login --web
     if ($LASTEXITCODE -ne 0) { throw 'GitHub sign-in failed.' }
