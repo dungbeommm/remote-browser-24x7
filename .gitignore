@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+*.log
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
+browser-data/
+*.zip
+
+backups/
