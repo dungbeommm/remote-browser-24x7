@@ -146,6 +146,34 @@ Tài liệu:
 - https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/
 - https://developers.cloudflare.com/tunnel/concepts/
 
+### Gửi URL trình duyệt preview qua Telegram tự động
+
+Workflow `.github/workflows/preview.yml` sẽ **gửi link HTTPS đến Telegram** ngay khi link Cloudflare Tunnel xuất hiện, trước khi bắt đầu đếm 10/20 phút chạy thử. Tin nhắn chứa đường link, username `preview`, thời gian phiên và URL workflow; **không gửi mật khẩu**.
+
+1. Vào **@BotFather** trong Telegram, dùng `/revoke` để vô hiệu token cũ nếu đã từng chia sẻ token công khai, sau đó lấy token mới.
+2. Mở chat với bot của bạn, nhấn **Start** hoặc gửi `/start`. Bot không thể nhắn tin riêng trước khi người dùng bắt đầu cuộc trò chuyện.
+3. Lấy `chat.id` từ Telegram API bằng máy riêng (không công khai token):
+
+   ```bash
+   read -r -s -p "New Telegram bot token: " BOT_TOKEN; echo
+   curl --silent --show-error --fail "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates"
+   unset BOT_TOKEN
+   ```
+
+   Trong JSON trả về, tìm `result[].message.chat.id` ứng với cuộc trò chuyện bạn vừa nhắn. Nếu `result` rỗng, hãy gửi `/start` hoặc một tin nhắn mới rồi chạy lại. Với nhóm Telegram, cần thêm bot vào nhóm và lấy đúng `chat.id` của nhóm (thường là số âm).
+
+4. Mở [Repository Settings → Actions secrets](https://github.com/dungbeommm/remote-browser-24x7/settings/secrets/actions), thêm **ba repository secrets**:
+
+   | Secret | Giá trị |
+   | --- | --- |
+   | `PREVIEW_WEB_PASSWORD` | Mật khẩu mạnh (tối thiểu 12 ký tự) để mở trình duyệt |
+   | `TELEGRAM_BOT_TOKEN` | Token **mới** do BotFather cấp |
+   | `TELEGRAM_CHAT_ID` | Giá trị `chat.id` chính xác từ Telegram |
+
+5. Vào **Actions → Temporary browser preview (manual, NOT 24/7) → Run workflow**. Khi tunnel tạo link, workflow sẽ dùng Telegram Bot API `sendMessage` để gửi vào đúng cuộc trò chuyện. Nếu thiếu secret hoặc bot chưa được phép nhắn tin, workflow báo lỗi và không gửi thông báo. Thời gian preview vẫn chỉ là 10 hoặc 20 phút; link không tồn tại sau khi runner dừng.
+
+**Không** thêm token, Chat ID, mật khẩu hoặc file `.env` vào commit GitHub. Hạn chế quyền truy cập vào repo và Actions secrets.
+
 ## 7. Triển khai từ repository
 
 Bạn có thể clone mã nguồn vào VPS theo lệnh ở mục 2. Repo chứa mã nguồn và quy trình kiểm thử; tự nó không phải một máy chủ đang chạy.
