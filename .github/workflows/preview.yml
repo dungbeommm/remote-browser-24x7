@@ -63,7 +63,7 @@ jobs:
             echo
             echo '> This is an ephemeral development preview only; data is NOT saved across runs and the link expires when this workflow stops.'
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Send browser link via Telegram
+      - name: Send browser link via Telegram (non-blocking)
         shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -73,13 +73,27 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          message="$(printf 'Trình duyệt Chromium đã sẵn sàng!\n\nLink: %s\nTài khoản: preview\nThời hạn: %s phút\n\nĐây là link thử nghiệm tạm thời, không lưu dữ liệu giữa các lần chạy.\nWorkflow: %s' "$PREVIEW_URL" "$DURATION_MINUTES" "$RUN_URL")"
-          curl --fail --silent --show-error --retry 3 --retry-delay 2 --max-time 30 \
-            --request POST \
-            --data-urlencode "chat_id=$TELEGRAM_CHAT_ID" \
-            --data-urlencode "text=$message" \
-            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" > /dev/null
-          echo 'Telegram link notification sent.'
+          # Older Windows/PowerShell secret setup may have appended a CR/LF.
+          # Strip whitespace from the secret copies held ONLY in runner memory.
+          token="$(printf '%s' "$TELEGRAM_BOT_TOKEN" | tr -d '[:space:]')"
+          chat_id="$(printf '%s' "$TELEGRAM_CHAT_ID" | tr -d '[:space:]')"
+          if [[ ! "$token" =~ ^[0-9]+:[A-Za-z0-9_-]+$ || ! "$chat_id" =~ ^-?[0-9]+$ ]]; then
+            echo '::warning::Telegram token or chat ID is invalid. Browser preview remains available in the run Summary.'
+            echo 'Telegram notification skipped: invalid token/chat ID. The browser URL is above.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            message="$(printf 'Trình duyệt Chromium đã sẵn sàng!\n\nLink: %s\nTài khoản: preview\nThời hạn: %s phút\n\nĐây là link thử nghiệm tạm thời, không lưu dữ liệu giữa các lần chạy.\nWorkflow: %s' "$PREVIEW_URL" "$DURATION_MINUTES" "$RUN_URL")"
+            if curl --fail --silent --show-error --retry 2 --retry-delay 2 --max-time 30 \
+              --request POST \
+              --data-urlencode "chat_id=$chat_id" \
+              --data-urlencode "text=$message" \
+              "https://api.telegram.org/bot${token}/sendMessage" > /dev/null; then
+              echo 'Telegram link notification sent.'
+              echo 'Telegram notification: sent.' >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo '::warning::Telegram API could not send the link. Check the bot token, /start, and chat ID. Browser preview remains available.'
+              echo 'Telegram notification: failed. The browser link is still available above.' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
       - name: Keep the test preview available briefly
         env:
           MINUTES: ${{ inputs.duration_minutes }}
