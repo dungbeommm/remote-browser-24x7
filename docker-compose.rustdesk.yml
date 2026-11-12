@@ -1,0 +1,10 @@
+# Optional RustDesk channel (smoother than noVNC). Use WITH the main file:
+#   docker compose -f docker-compose.yml -f docker-compose.rustdesk.yml up -d
+# The browser container entrypoint is wrapped so app/rustdesk-launch.sh runs
+# next to the original start.sh. noVNC stays available as a fallback.
+services:
+  browser:
+    entrypoint: ["/bin/bash", "/app/start-with-rustdesk.sh"]
+    volumes:
+      - ./app/start-with-rustdesk.sh:/app/start-with-rustdesk.sh:ro
+      - ./app/rustdesk-launch.sh:/app/rustdesk-launch.sh:ro
