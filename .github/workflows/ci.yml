@@ -15,11 +15,13 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-      - name: Validate shell scripts
+      - name: Validate shell scripts, configs and unit tests
         run: |
-          bash -n app/start.sh app/healthcheck.sh scripts/show-link.sh
+          bash -n app/*.sh scripts/*.sh
+          python3 -m unittest discover -s tests -v
+          WEB_PASSWORD=ci-password-for-test-123456 docker compose --profile quick config --quiet
       - name: Build image
-        run: docker build -t remote-browser:ci .
+        run: docker build --progress=plain -t remote-browser:ci .
       - name: Start container
         run: |
           docker run --rm -d --name remote-browser-ci \
@@ -39,7 +41,10 @@ jobs:
           docker exec remote-browser-ci /app/healthcheck.sh
       - name: Troubleshooting logs
         if: failure()
-        run: docker logs remote-browser-ci || true
+        run: |
+          docker logs remote-browser-ci || true
+          docker ps -a || true
+          docker inspect remote-browser-ci --format '{{json .State}}' || true
       - name: Stop container
         if: always()
         run: docker rm -f remote-browser-ci || true
