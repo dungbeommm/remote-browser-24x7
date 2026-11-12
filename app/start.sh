@@ -34,7 +34,8 @@ ln -sfn /data/downloads /home/browser/Downloads
 
 # Generate a BCrypt password file. Neither the password nor its hash is logged.
 printf '%s\n' "$WEB_PASSWORD" | htpasswd -i -B -C 10 -c /etc/nginx/.htpasswd "$WEB_USER" > /dev/null
-chmod 600 /etc/nginx/.htpasswd
+chown root:www-data /etc/nginx/.htpasswd
+chmod 640 /etc/nginx/.htpasswd
 nginx -t > /dev/null
 
 pids=()
