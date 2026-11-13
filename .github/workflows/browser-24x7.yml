@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       hold_minutes:
-        description: 'Minutes before saving state (leave time for upload under GitHub job limit)'
+        description: 'Minutes to keep this session alive (GitHub caps one job at 360)'
         required: false
         type: choice
-        default: '300'
+        default: '330'
         options:
           - '60'
-          - '300'
+          - '330'
 
 permissions:
   actions: write
@@ -20,9 +20,6 @@ jobs:
   session:
     runs-on: ubuntu-24.04
     timeout-minutes: 355
-    concurrency:
-      group: browser-session-main
-      cancel-in-progress: false
     env:
       WEB_USER: preview
       WEB_PASSWORD: ${{ secrets.PREVIEW_WEB_PASSWORD }}
@@ -47,12 +44,6 @@ jobs:
           chat_id="$(printf '%s' "$TELEGRAM_CHAT_ID" | tr -d '[:space:]')"
           echo "TG_TOKEN=$token" >> "$GITHUB_ENV"
           echo "TG_CHAT=$chat_id" >> "$GITHUB_ENV"
-
-      - name: Restore previous browser state
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SESSION_BACKUP_KEY: ${{ secrets.SESSION_BACKUP_KEY }}
-        run: bash scripts/restore-session.sh
 
       - name: Start browser and quick Cloudflare Tunnel
         run: docker compose -f docker-compose.yml -f docker-compose.rustdesk.yml --profile quick up -d --build
@@ -79,7 +70,7 @@ jobs:
             echo
             echo "Open **$url** and log in with username **preview** and your PREVIEW_WEB_PASSWORD secret."
             echo
-            echo '> Browser profile and downloads were restored from the previous encrypted snapshot when available. The next run starts after this one saves its state.'
+            echo '> Chained session: the next run is dispatched ~30 minutes before this one ends, so sessions overlap with no gap. Login data does NOT carry over between sessions.'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Get RustDesk device ID
@@ -93,7 +84,7 @@ jobs:
             sleep 5
           done
           if [[ -z "$rid" ]]; then
-            echo '::warning::RustDesk ID not found in logs; KasmVNC link still works.'
+            echo '::warning::RustDesk ID not found in logs; noVNC link still works.'
           fi
           echo "id=$rid" >> "$GITHUB_OUTPUT"
 
@@ -123,42 +114,49 @@ jobs:
             echo '::warning::Telegram send failed; link is in the run Summary.'
           fi
 
-      - name: Hold session
+      - name: Hold session and chain the next run before time expires
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOLD_MINUTES: ${{ inputs.hold_minutes }}
+          CHAIN_BEFORE_MIN: '30'
         run: |
           total=$(( HOLD_MINUTES * 60 ))
+          chain_at=$(( total - CHAIN_BEFORE_MIN * 60 ))
           elapsed=0
+          chained=0
           while (( elapsed < total )); do
             sleep 60
             elapsed=$(( elapsed + 60 ))
+            if (( chained == 0 && elapsed >= chain_at )); then
+              if gh workflow run browser-24x7.yml --ref main; then
+                echo "Next session dispatched at minute $(( elapsed / 60 ))."
+                echo "chained $(date -u +%FT%TZ)" > chained.txt
+                chained=1
+              else
+                echo '::warning::Chain dispatch failed; will retry.'
+              fi
+            fi
             if (( elapsed % 600 == 0 )); then
-              echo "Holding: $(( elapsed / 60 ))/$HOLD_MINUTES min"
+              echo "Holding: $(( elapsed / 60 ))/$HOLD_MINUTES min, chained=$chained"
             fi
           done
           echo 'Session time complete.'
 
-      - name: Save browser state
-        env:
-          SESSION_BACKUP_KEY: ${{ secrets.SESSION_BACKUP_KEY }}
-        run: bash scripts/save-session.sh
-
-      - name: Upload encrypted browser state
-        uses: actions/upload-artifact@v4
-        with:
-          name: browser-state
-          path: browser-state.tar.gz.enc
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
-
-      - name: Chain next session after state upload
+      - name: Fallback - chain next run if the hold step did not
+        if: ${{ !cancelled() }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh workflow run browser-24x7.yml --ref main
+          if [ -f chained.txt ]; then
+            echo 'Next run already chained.'
+          elif [ -f session-ok.txt ]; then
+            echo 'Session ran but did not chain; dispatching next run now.'
+            gh workflow run browser-24x7.yml --ref main
+          else
+            echo 'Session never came up; not chaining. The watchdog will retry within the hour.'
+          fi
 
       - name: Stop session
         if: always()
