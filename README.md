@@ -1,10 +1,10 @@
 # Remote Browser 24/7 — Chromium điều khiển bằng web
 
-Một trình duyệt Chromium có giao diện đầy đủ, mở trong trình duyệt trên điện thoại/máy tính bằng **Selkies**; chạy trong Docker trên VPS hoặc máy tính luôn bật. Không cần cài Chrome trên thiết bị truy cập.
+Một trình duyệt Chromium có giao diện đầy đủ, mở trong trình duyệt trên điện thoại/máy tính bằng **KasmVNC**; chạy trong Docker trên VPS hoặc máy tính luôn bật. Không cần cài Chrome trên thiết bị truy cập.
 
 ## Tính năng
 
-- Điều khiển từ xa (chuột, bàn phím, nhiều tab) qua giao diện web Selkies.
+- Điều khiển từ xa (chuột, bàn phím, nhiều tab) qua giao diện web KasmVNC.
 - Có **mật khẩu bắt buộc** ở Nginx; cổng điều khiển nội bộ không được public trực tiếp.
 - Profile Chromium, cookie, phiên đăng nhập, lịch sử, bookmark, extension và download được ghi vào Docker volume `browser-data` và được giữ lại qua các lần khởi động lại.
 - **Quick Tunnel** Cloudflare để kiểm tra: tạo URL HTTPS ngẫu nhiên, miễn phí và không cần tài khoản Cloudflare.
@@ -26,10 +26,10 @@ Cloudflare Tunnel (quick hoặc named)
 Nginx Basic Auth :8080
       |
       v
-Selkies WebSocket :6080 (loopback)
+KasmVNC WebSocket + X display :6080 (loopback)
       |
       v
-Xvfb + Openbox -> Chromium
+Openbox -> Chromium
                                               |
                                               v
                                           /data (volume)
@@ -61,7 +61,7 @@ docker compose --profile quick up -d --build
 ./scripts/show-link.sh
 ```
 
-Nếu link chưa hiện, xem `docker compose logs -f tunnel-quick` rồi chạy lại `./scripts/show-link.sh`. Mở URL `https://...trycloudflare.com` trên điện thoại, nhập `WEB_USER` và `WEB_PASSWORD`. Bạn sẽ thấy desktop Chromium trong Selkies. Danh sách file đã tải có tại **`https://<link-của-bạn>/downloads/`**, cùng thông tin đăng nhập.
+Nếu link chưa hiện, xem `docker compose logs -f tunnel-quick` rồi chạy lại `./scripts/show-link.sh`. Mở URL `https://...trycloudflare.com` trên điện thoại, nhập `WEB_USER` và `WEB_PASSWORD`. Bạn sẽ thấy desktop Chromium trong KasmVNC. Danh sách file đã tải có tại **`https://<link-của-bạn>/downloads/`**, cùng thông tin đăng nhập.
 
 **Nhược điểm:** URL quick tunnel thay đổi khi tunnel được tạo lại và không có cam kết uptime. Nó chỉ phù hợp thử nghiệm.
 
@@ -127,7 +127,7 @@ docker compose --profile stable up -d
 curl http://127.0.0.1:8080/healthz
 ```
 
-Gợi ý cho điện thoại: mở `https://hostname/`; thanh công cụ Selkies có bàn phím ảo, thu phóng và tùy chỉnh chất lượng truyền hình.
+Gợi ý cho điện thoại: mở `https://hostname/`; thanh công cụ KasmVNC có bàn phím ảo, thu phóng và tùy chỉnh chất lượng truyền hình.
 
 ## 6. GitHub Actions được sử dụng như thế nào?
 
@@ -161,8 +161,8 @@ Dùng repo riêng tư khi lưu thêm cấu hình nhạy cảm; tuyệt đối kh
 
 ## 8. Giới hạn cần biết
 
-- Cấu hình này dùng Selkies WebSocket/WebCodecs qua một cổng HTTP, tương thích với Cloudflare Tunnel hiện tại. WebRTC cần thêm TURN hoặc đường UDP trực tiếp; phải cấu hình chúng trước khi đổi `--mode` trong `app/start.sh`. Âm thanh, micro và webcam phụ thuộc khả năng của trình duyệt truy cập và cấu hình Selkies.
+- Cấu hình này dùng KasmVNC qua HTTP/WebSocket trên một cổng nội bộ, tương thích với Cloudflare Tunnel hiện tại. KasmVNC trong cấu hình này không chuyển tiếp âm thanh, micro hoặc webcam.
 - Các website có DRM, kiểm tra thiết bị, xác thực hai bước hoặc anti-bot có thể không hoạt động bình thường.
 - Không cam kết 100% uptime: VPS, Cloudflare, mạng và ổ đĩa vẫn có thể lỗi. Cần giám sát, backup và tăng độ sẵn sàng nếu sử dụng quan trọng.
-- Không chia sẻ URL + mật khẩu cho người lạ. Không public cổng Selkies 6080 ra Internet; chỉ truy cập qua Nginx có xác thực.
+- Không chia sẻ URL + mật khẩu cho người lạ. Không public cổng KasmVNC 6080 ra Internet; chỉ truy cập qua Nginx có xác thực.
 - Không chạy `docker compose down -v` nếu còn cần dữ liệu.

@@ -36,7 +36,7 @@ jobs:
             sleep 2
           done
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/)" = '401'
-          curl -fsS -u 'ci:ci-password-for-test-123456' http://127.0.0.1:18080/ | grep -qi 'selkies'
+          curl -fsS -u 'ci:ci-password-for-test-123456' http://127.0.0.1:18080/ | grep -Eqi '<html|kasm'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/downloads/)" = '401'
           docker exec remote-browser-ci /app/healthcheck.sh
       - name: Troubleshooting logs

@@ -16,21 +16,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-cjk \
     nginx \
     openbox \
-    pulseaudio \
     procps \
     x11-utils \
-    xvfb \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --shell /bin/bash --uid 1000 browser \
     && mkdir -p /data /app \
     && chown -R browser:browser /data /home/browser
 
-ARG SELKIES_VERSION=2.1.0
-ARG SELKIES_SHA256=d2a9fd238507b58c93a65e371a756669b8ba91ee237f81c457d5329b0ce756f9
-RUN curl -fsSL -o /tmp/selkies.deb "https://github.com/selkies-project/selkies/releases/download/${SELKIES_VERSION}/selkies-${SELKIES_VERSION}-debianbookworm-amd64.deb" \
-    && echo "${SELKIES_SHA256}  /tmp/selkies.deb" | sha256sum -c - \
-    && apt-get update && apt-get install -y --no-install-recommends /tmp/selkies.deb \
-    && rm -f /tmp/selkies.deb && rm -rf /var/lib/apt/lists/*
+ARG KASMVNC_VERSION=1.5.0
+ARG KASMVNC_SHA256=770fd3df51510beecc89666879d82faf411276e68c6e11df612f736b891b5f71
+RUN curl -fsSL -o /tmp/kasmvnc.deb "https://github.com/kasmtech/KasmVNC/releases/download/v${KASMVNC_VERSION}/kasmvncserver_bookworm_${KASMVNC_VERSION}_amd64.deb" \
+    && echo "${KASMVNC_SHA256}  /tmp/kasmvnc.deb" | sha256sum -c - \
+    && apt-get update && apt-get install -y --no-install-recommends /tmp/kasmvnc.deb \
+    && rm -f /tmp/kasmvnc.deb && rm -rf /var/lib/apt/lists/* \
+    && test -x /usr/bin/Xkasmvnc && test -d /usr/share/kasmvnc/www
 
 COPY app/nginx.conf /etc/nginx/nginx.conf
 COPY app/start.sh /app/start.sh

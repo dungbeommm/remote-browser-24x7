@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Optional RustDesk control channel, launched next to Selkies.
+# Optional RustDesk control channel, launched next to KasmVNC.
 # - Installs the official RustDesk .deb on first start (.deb cached on /data).
 # - Runs RustDesk on display :99 as user "browser" (service + GUI).
 # - Persists the RustDesk identity (device ID) under /data/rustdesk.

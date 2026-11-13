@@ -55,8 +55,16 @@ cleanup() {
 }
 trap cleanup EXIT TERM INT
 
-# The display and Selkies service stay inside the container. Nginx is the authenticated entrypoint.
-runuser -u browser -- Xvfb :99 -screen 0 "$SCREEN_RESOLUTION" -nolisten tcp -ac &
+# KasmVNC owns the X display and serves its web client on loopback only.
+# Nginx is the authenticated entrypoint.
+screen_geometry="${SCREEN_RESOLUTION%x*}"
+screen_depth="${SCREEN_RESOLUTION##*x}"
+runuser -u browser -- Xkasmvnc :99 \
+  -geometry "$screen_geometry" -depth "$screen_depth" \
+  -interface 127.0.0.1 -PublicIP 127.0.0.1 \
+  -websocketPort 6080 -rfbport -1 \
+  -httpd /usr/share/kasmvnc/www -sslOnly 0 \
+  -disableBasicAuth -SecurityTypes None -AlwaysShared -FreeKeyMappings &
 pids+=("$!")
 
 for _ in $(seq 1 40); do
@@ -66,22 +74,11 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 if ! runuser -u browser -- env DISPLAY=:99 xdpyinfo > /dev/null 2>&1; then
-  echo 'Xvfb did not start' >&2
+  echo 'KasmVNC display did not start' >&2
   exit 1
 fi
 
 runuser -u browser -- env DISPLAY=:99 openbox &
-pids+=("$!")
-
-mkdir -p /tmp/browser-runtime
-chown browser:browser /tmp/browser-runtime
-chmod 700 /tmp/browser-runtime
-runuser -u browser -- env DISPLAY=:99 HOME=/home/browser XDG_RUNTIME_DIR=/tmp/browser-runtime pulseaudio --daemonize=no --exit-idle-time=-1 &
-pids+=("$!")
-
-# Selkies serves the desktop over one loopback WebSocket port behind Nginx.
-runuser -u browser -- env DISPLAY=:99 HOME=/home/browser XDG_RUNTIME_DIR=/tmp/browser-runtime \
-  selkies --port=6080 --mode=websockets --enable-basic-auth=false --enable-dual-mode=false &
 pids+=("$!")
 
 runuser -u browser -- env DISPLAY=:99 HOME=/home/browser chromium \

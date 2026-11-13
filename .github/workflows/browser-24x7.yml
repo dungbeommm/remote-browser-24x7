@@ -93,7 +93,7 @@ jobs:
             sleep 5
           done
           if [[ -z "$rid" ]]; then
-            echo '::warning::RustDesk ID not found in logs; Selkies link still works.'
+            echo '::warning::RustDesk ID not found in logs; KasmVNC link still works.'
           fi
           echo "id=$rid" >> "$GITHUB_OUTPUT"
 
