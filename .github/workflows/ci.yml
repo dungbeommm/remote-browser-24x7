@@ -35,8 +35,8 @@ jobs:
             if curl -fsS http://127.0.0.1:18080/healthz > /dev/null 2>&1; then break; fi
             sleep 2
           done
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/vnc.html)" = '401'
-          curl -fsS -u 'ci:ci-password-for-test-123456' http://127.0.0.1:18080/vnc.html | grep -qi 'noVNC'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/)" = '401'
+          curl -fsS -u 'ci:ci-password-for-test-123456' http://127.0.0.1:18080/ | grep -qi 'selkies'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/downloads/)" = '401'
           docker exec remote-browser-ci /app/healthcheck.sh
       - name: Troubleshooting logs

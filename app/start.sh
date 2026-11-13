@@ -55,7 +55,7 @@ cleanup() {
 }
 trap cleanup EXIT TERM INT
 
-# VNC only listens on loopback INSIDE the container. Nginx is the authenticated entrypoint.
+# The display and Selkies service stay inside the container. Nginx is the authenticated entrypoint.
 runuser -u browser -- Xvfb :99 -screen 0 "$SCREEN_RESOLUTION" -nolisten tcp -ac &
 pids+=("$!")
 
@@ -73,12 +73,15 @@ fi
 runuser -u browser -- env DISPLAY=:99 openbox &
 pids+=("$!")
 
-runuser -u browser -- env DISPLAY=:99 x11vnc \
-  -display :99 -forever -shared -rfbport 5900 -localhost -nopw -quiet -noxdamage &
+mkdir -p /tmp/browser-runtime
+chown browser:browser /tmp/browser-runtime
+chmod 700 /tmp/browser-runtime
+runuser -u browser -- env DISPLAY=:99 HOME=/home/browser XDG_RUNTIME_DIR=/tmp/browser-runtime pulseaudio --daemonize=no --exit-idle-time=-1 &
 pids+=("$!")
 
-# Debian's novnc package installs its web client at /usr/share/novnc.
-websockify --web=/usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900 &
+# Selkies serves the desktop over one loopback WebSocket port behind Nginx.
+runuser -u browser -- env DISPLAY=:99 HOME=/home/browser XDG_RUNTIME_DIR=/tmp/browser-runtime \
+  selkies --port=6080 --mode=websockets --enable-basic-auth=false --enable-dual-mode=false &
 pids+=("$!")
 
 runuser -u browser -- env DISPLAY=:99 HOME=/home/browser chromium \

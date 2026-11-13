@@ -1,16 +1,16 @@
 # Remote Browser 24/7 — Chromium điều khiển bằng web
 
-Một trình duyệt Chromium có giao diện đầy đủ, mở trong trình duyệt trên điện thoại/máy tính bằng **noVNC**; chạy trong Docker trên VPS hoặc máy tính luôn bật. Không cần cài Chrome trên thiết bị truy cập.
+Một trình duyệt Chromium có giao diện đầy đủ, mở trong trình duyệt trên điện thoại/máy tính bằng **Selkies**; chạy trong Docker trên VPS hoặc máy tính luôn bật. Không cần cài Chrome trên thiết bị truy cập.
 
 ## Tính năng
 
-- Điều khiển từ xa (chuột, bàn phím, nhiều tab) qua giao diện web noVNC.
+- Điều khiển từ xa (chuột, bàn phím, nhiều tab) qua giao diện web Selkies.
 - Có **mật khẩu bắt buộc** ở Nginx; cổng điều khiển nội bộ không được public trực tiếp.
 - Profile Chromium, cookie, phiên đăng nhập, lịch sử, bookmark, extension và download được ghi vào Docker volume `browser-data` và được giữ lại qua các lần khởi động lại.
 - **Quick Tunnel** Cloudflare để kiểm tra: tạo URL HTTPS ngẫu nhiên, miễn phí và không cần tài khoản Cloudflare.
 - **Named Tunnel** Cloudflare: URL HTTPS cố định, cần có Cloudflare Tunnel và tên miền do bạn quản lý.
 - Docker tự khởi động lại khi máy reboot hoặc container gặp lỗi (`restart: unless-stopped`). Có chế độ tự khởi động lại trình duyệt theo chu kỳ nếu thực sự cần.
-- Có workflow GitHub Actions **chỉ dùng để build và smoke-test**, không dùng runner GitHub làm máy chủ 24/7.
+- Có workflow CI và phiên nối tiếp trên GitHub Actions; phiên nối tiếp lưu profile bằng artifact mã hóa.
 
 > **Quan trọng:** Đây là ứng dụng điều khiển từ xa. Mọi website, mật khẩu, cookie và dữ liệu tải xuống đều tồn tại trên máy chủ bạn triển khai. Hãy bảo vệ máy chủ, volume và mật khẩu. Chromium trong Docker dùng `--no-sandbox`, nên không truy cập các trang không đáng tin cậy hoặc xử lý dữ liệu tối mật trên bản cài đặt này.
 
@@ -26,10 +26,10 @@ Cloudflare Tunnel (quick hoặc named)
 Nginx Basic Auth :8080
       |
       v
-noVNC + websockify :6080 (loopback)
+Selkies WebSocket :6080 (loopback)
       |
       v
-x11vnc :5900 (loopback) -> Xvfb + Openbox -> Chromium
+Xvfb + Openbox -> Chromium
                                               |
                                               v
                                           /data (volume)
@@ -61,7 +61,7 @@ docker compose --profile quick up -d --build
 ./scripts/show-link.sh
 ```
 
-Nếu link chưa hiện, xem `docker compose logs -f tunnel-quick` rồi chạy lại `./scripts/show-link.sh`. Mở URL `https://...trycloudflare.com` trên điện thoại, nhập `WEB_USER` và `WEB_PASSWORD`. Bạn sẽ thấy desktop Chromium trong noVNC. Nếu không tự kết nối, nhấn **Connect**. Danh sách file đã tải có tại **`https://<link-của-bạn>/downloads/`**, cùng thông tin đăng nhập.
+Nếu link chưa hiện, xem `docker compose logs -f tunnel-quick` rồi chạy lại `./scripts/show-link.sh`. Mở URL `https://...trycloudflare.com` trên điện thoại, nhập `WEB_USER` và `WEB_PASSWORD`. Bạn sẽ thấy desktop Chromium trong Selkies. Danh sách file đã tải có tại **`https://<link-của-bạn>/downloads/`**, cùng thông tin đăng nhập.
 
 **Nhược điểm:** URL quick tunnel thay đổi khi tunnel được tạo lại và không có cam kết uptime. Nó chỉ phù hợp thử nghiệm.
 
@@ -127,18 +127,19 @@ docker compose --profile stable up -d
 curl http://127.0.0.1:8080/healthz
 ```
 
-Gợi ý cho điện thoại: mở `https://hostname/vnc.html?autoconnect=1&resize=scale`; thanh công cụ noVNC có bàn phím ảo, nút gửi Ctrl/Alt/Del, thu/phóng.
+Gợi ý cho điện thoại: mở `https://hostname/`; thanh công cụ Selkies có bàn phím ảo, thu phóng và tùy chỉnh chất lượng truyền hình.
 
 ## 6. GitHub Actions được sử dụng như thế nào?
 
 Repo có:
 
 - `.github/workflows/ci.yml`: build Docker image và smoke-test cơ chế xác thực (không có mật khẩu phải nhận HTTP 401).
-- `.github/workflows/preview.yml`: **chế độ thử nghiệm ngắn** (10 hoặc 20 phút), khởi chạy browser + Cloudflare Quick Tunnel trên runner GitHub, tạo URL HTTPS trong **Actions → run → Summary**. Để sử dụng: vào repo → Settings → Secrets and variables → Actions, tạo secret `PREVIEW_WEB_PASSWORD` (12+ ký tự); rồi Actions → **Temporary browser preview** → Run workflow. Tên đăng nhập mặc định là `preview`.
+- `.github/workflows/browser-24x7.yml`: chạy trình duyệt và Cloudflare Quick Tunnel, lưu dữ liệu giữa các run qua artifact mã hóa.
+- `.github/workflows/browser-watchdog.yml`: khởi chạy lại chuỗi nếu không có run nào hoạt động.
 
-Chế độ preview chỉ để kiểm thử, **không lưu profile giữa các run**, không dùng để duy trì máy chủ thường trực và không được dùng để nối chuỗi phiên chạy.
+Workflow `browser-24x7.yml` lưu profile và file tải sau 300 phút (mặc định), tải lên GitHub artifact đã mã hóa, rồi mới gọi run tiếp theo. Run mới giải mã và khôi phục dữ liệu trước khi bật Chromium. Tạo secret `SESSION_BACKUP_KEY` dài ít nhất 32 ký tự trong **Settings → Secrets and variables → Actions**; giữ nguyên secret này giữa các run. Nếu mất hoặc đổi key, các artifact cũ không giải mã được. `PREVIEW_WEB_PASSWORD` vẫn là mật khẩu truy cập web.
 
-**Không có workflow tự tạo job mới sau 5–6 giờ**. Theo tài liệu GitHub, một job trên GitHub-hosted runner tối đa 6 giờ, và GitHub không cho dùng runner vào hoạt động không liên quan đến production/test/deploy của project. Tạo workflow nối tiếp để duy trì remote browser 24/7 không đáp ứng mục đích sử dụng này và không đảm bảo uptime. Docker trên máy chủ là giải pháp đúng.
+Việc chuyển run có gián đoạn; tab được Chromium khôi phục từ profile nhưng nội dung đang chạy trong RAM, form chưa lưu và tiến trình web không tiếp tục nguyên trạng. Cloudflare Quick Tunnel cấp link mới ở mỗi run. Artifact có thời hạn lưu 7 ngày và phụ thuộc giới hạn dung lượng/artifact của GitHub. Runner GitHub có giới hạn thời gian và không bảo đảm uptime; xem [giới hạn Actions](https://docs.github.com/en/actions/reference/limits) và [điều khoản sử dụng](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features).
 
 Tài liệu:
 - https://docs.github.com/en/actions/reference/limits
@@ -146,53 +147,11 @@ Tài liệu:
 - https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/
 - https://developers.cloudflare.com/tunnel/concepts/
 
-### Thiết lập Telegram nhanh trên Windows (khuyến nghị)
+### Thiết lập Telegram trên Windows
 
-Đã có script PowerShell **`scripts/setup-telegram.ps1`**. Script hỏi token và mật khẩu bằng nhập liệu ẩn, tìm Chat ID từ tin nhắn Telegram, dùng `gh secret set` để lưu ba GitHub Actions Secrets và chạy thử preview 10 phút. Token không được commit lên GitHub.
+Script `scripts/setup-telegram.ps1` hỏi token Telegram, Chat ID, mật khẩu web và key mã hóa bản lưu; nó ghi bốn Actions secrets qua GitHub CLI rồi khởi chạy `browser-24x7.yml`. Chạy `gh auth login --web`, sau đó `./scripts/setup-telegram.ps1` trong PowerShell. Thêm `-DoNotRun` nếu chỉ muốn lưu secrets. Link phiên mới được gửi qua Telegram khi tunnel sẵn sàng; mật khẩu không có trong tin nhắn.
 
-1. Thu hồi token cũ đã từng chia sẻ qua **@BotFather** (`/revoke`) và tạo token mới. **Đừng dán token vào chat hoặc issue.**
-2. Nhắn `/start` đến bot Telegram bạn muốn nhận link.
-3. Trên Windows PowerShell, cài GitHub CLI nếu chưa có: `winget install --id GitHub.cli -e` rồi mở cửa sổ PowerShell mới.
-4. Chạy:
-
-   ```powershell
-   git clone https://github.com/dungbeommm/remote-browser-24x7.git
-   cd remote-browser-24x7
-   gh auth login --web
-   .\scripts\setup-telegram.ps1
-   ```
-
-5. Nhập token **mới** và mật khẩu trình duyệt khi script hỏi. Nếu bot có nhiều chat hoặc không có update thì script sẽ hỏi Chat ID. Sau khi thiết lập, nó sẽ kích hoạt một phiên preview. Bạn nhận link Telegram khi tunnel khởi tạo thành công. Có thể chạy script bằng `-DoNotRun` nếu chỉ muốn lưu secrets.
-
-Đây là script thiết lập trên máy của bạn: GitHub connector dùng trong ChatGPT có thể sửa mã nguồn nhưng **không thể ghi trực tiếp Actions Secrets**, và chương trình cần tài khoản GitHub đã đăng nhập của bạn để gọi lệnh này. Script sử dụng GitHub CLI để mã hóa Secrets trước khi gửi lên GitHub. Không đưa token trực tiếp lên command line hoặc file cấu hình.
-
-### Gửi URL trình duyệt preview qua Telegram tự động
-
-Workflow `.github/workflows/preview.yml` sẽ **gửi link HTTPS đến Telegram** ngay khi link Cloudflare Tunnel xuất hiện, trước khi bắt đầu đếm 10/20 phút chạy thử. Tin nhắn chứa đường link, username `preview`, thời gian phiên và URL workflow; **không gửi mật khẩu**.
-
-1. Vào **@BotFather** trong Telegram, dùng `/revoke` để vô hiệu token cũ nếu đã từng chia sẻ token công khai, sau đó lấy token mới.
-2. Mở chat với bot của bạn, nhấn **Start** hoặc gửi `/start`. Bot không thể nhắn tin riêng trước khi người dùng bắt đầu cuộc trò chuyện.
-3. Lấy `chat.id` từ Telegram API bằng máy riêng (không công khai token):
-
-   ```bash
-   read -r -s -p "New Telegram bot token: " BOT_TOKEN; echo
-   curl --silent --show-error --fail "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates"
-   unset BOT_TOKEN
-   ```
-
-   Trong JSON trả về, tìm `result[].message.chat.id` ứng với cuộc trò chuyện bạn vừa nhắn. Nếu `result` rỗng, hãy gửi `/start` hoặc một tin nhắn mới rồi chạy lại. Với nhóm Telegram, cần thêm bot vào nhóm và lấy đúng `chat.id` của nhóm (thường là số âm).
-
-4. Mở [Repository Settings → Actions secrets](https://github.com/dungbeommm/remote-browser-24x7/settings/secrets/actions), thêm **ba repository secrets**:
-
-   | Secret | Giá trị |
-   | --- | --- |
-   | `PREVIEW_WEB_PASSWORD` | Mật khẩu mạnh (tối thiểu 12 ký tự) để mở trình duyệt |
-   | `TELEGRAM_BOT_TOKEN` | Token **mới** do BotFather cấp |
-   | `TELEGRAM_CHAT_ID` | Giá trị `chat.id` chính xác từ Telegram |
-
-5. Vào **Actions → Temporary browser preview (manual, NOT 24/7) → Run workflow**. Khi tunnel tạo link, workflow sẽ dùng Telegram Bot API `sendMessage` để gửi vào đúng cuộc trò chuyện. Nếu thiếu secret hoặc bot chưa được phép nhắn tin, workflow báo lỗi và không gửi thông báo. Thời gian preview vẫn chỉ là 10 hoặc 20 phút; link không tồn tại sau khi runner dừng.
-
-**Không** thêm token, Chat ID, mật khẩu hoặc file `.env` vào commit GitHub. Hạn chế quyền truy cập vào repo và Actions secrets.
+Giữ kín `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `PREVIEW_WEB_PASSWORD` và `SESSION_BACKUP_KEY`; không commit chúng vào repo.
 
 ## 7. Triển khai từ repository
 
@@ -202,8 +161,8 @@ Dùng repo riêng tư khi lưu thêm cấu hình nhạy cảm; tuyệt đối kh
 
 ## 8. Giới hạn cần biết
 
-- Browser được điều khiển thông qua ảnh/chuột/keyboard của noVNC; âm thanh trang web và micro/webcam không được chuyển tiếp đầy đủ như RDP/streaming chuyên dụng.
+- Cấu hình này dùng Selkies WebSocket/WebCodecs qua một cổng HTTP, tương thích với Cloudflare Tunnel hiện tại. WebRTC cần thêm TURN hoặc đường UDP trực tiếp; phải cấu hình chúng trước khi đổi `--mode` trong `app/start.sh`. Âm thanh, micro và webcam phụ thuộc khả năng của trình duyệt truy cập và cấu hình Selkies.
 - Các website có DRM, kiểm tra thiết bị, xác thực hai bước hoặc anti-bot có thể không hoạt động bình thường.
 - Không cam kết 100% uptime: VPS, Cloudflare, mạng và ổ đĩa vẫn có thể lỗi. Cần giám sát, backup và tăng độ sẵn sàng nếu sử dụng quan trọng.
-- Không chia sẻ URL + mật khẩu cho người lạ. Không public cổng VNC 5900 hoặc websockify 6080 ra Internet.
+- Không chia sẻ URL + mật khẩu cho người lạ. Không public cổng Selkies 6080 ra Internet; chỉ truy cập qua Nginx có xác thực.
 - Không chạy `docker compose down -v` nếu còn cần dữ liệu.

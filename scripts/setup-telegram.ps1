@@ -5,8 +5,6 @@
 [CmdletBinding()]
 param(
     [string]$Repository = 'dungbeommm/remote-browser-24x7',
-    [ValidateSet(10, 20)]
-    [int]$PreviewMinutes = 10,
     [switch]$DoNotRun
 )
 
@@ -144,22 +142,28 @@ if ($chatId -notmatch '^-?[0-9]+$') {
     throw 'Chat ID must be numeric. No secret has been saved.'
 }
 
-$password = Get-PlainSecret 'Browser preview password (12+ characters)'
+$password = Get-PlainSecret 'Browser password (12+ characters)'
 if ($password.Length -lt 12) {
     throw 'Password must be at least 12 characters. No secret has been saved.'
 }
 if ($password.Contains("`n") -or $token.Contains("`n")) {
     throw 'Secrets must not contain newlines.'
 }
+$backupKey = Get-PlainSecret 'Session backup key (32+ characters; keep it for future runs)'
+if ($backupKey.Length -lt 32 -or $backupKey.Contains("`n")) {
+    throw 'Backup key must contain at least 32 characters and no newlines.'
+}
 
 try {
     Set-ActionsSecret -Name 'TELEGRAM_BOT_TOKEN' -Value $token
     Set-ActionsSecret -Name 'TELEGRAM_CHAT_ID' -Value $chatId
     Set-ActionsSecret -Name 'PREVIEW_WEB_PASSWORD' -Value $password
+    Set-ActionsSecret -Name 'SESSION_BACKUP_KEY' -Value $backupKey
 }
 finally {
     $token = $null
     $password = $null
+    $backupKey = $null
 }
 
 Write-Host ''
@@ -169,9 +173,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not verify secret names.' }
 
 if (-not $DoNotRun) {
     Write-Host ''
-    Write-Host "Starting a $PreviewMinutes-minute temporary preview..."
-    & gh workflow run preview.yml --repo $Repository --field ("duration_minutes=" + $PreviewMinutes)
-    if ($LASTEXITCODE -ne 0) { throw 'Could not start preview workflow.' }
+    Write-Host 'Starting the browser session workflow...'
+    & gh workflow run browser-24x7.yml --repo $Repository
+    if ($LASTEXITCODE -ne 0) { throw 'Could not start browser workflow.' }
     Write-Host ''
     Write-Host ('Open https://github.com/' + $Repository + '/actions')
     Write-Host 'The Telegram link will arrive when Cloudflare tunnel is ready.'
